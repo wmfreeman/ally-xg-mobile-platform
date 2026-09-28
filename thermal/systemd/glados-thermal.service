@@ -1,0 +1,14 @@
+[Unit]
+Description=GlaDOS thermal policy (Ally + XG Mobile fan curves, performance profile)
+After=multi-user.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/sbin/glados-thermal.py
+Restart=always
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
