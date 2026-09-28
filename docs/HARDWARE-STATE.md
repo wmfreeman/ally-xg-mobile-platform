@@ -33,8 +33,45 @@ The XG Mobile hangs off root port **`0000:00:01.1`**, whose bridge window is
 `secondary_bus=1, subordinate_bus=5`. The dock chain enumerates as
 `01:00.0 → 02:00.0 → 03:00.0/.1`.
 
-With the dock detached, **buses 01–05 are empty** and `0000:03:00.0` has no
-sysfs node at all. Device count: **38 detached / 42 attached**.
+With the card off the bus, **buses 01–05 are empty** and `0000:03:00.0` has
+no sysfs node at all. Device count: **38 without the card / 42 with it**.
+
+Link when up: **PCIe x4 at 8.0 GT/s — 31.504 Gb/s**, limited by root port
+`0000:00:01.1` (the card is capable of x16 at 16.0 GT/s / 252.048 Gb/s).
+The slot is `HotPlug+ Surprise+ LLActRep+`.
+
+## The PCIe gate — `asus-nb-wmi`
+
+Two attributes under `/sys/bus/platform/devices/asus-nb-wmi/`:
+
+| Attribute | Access | Meaning |
+|---|---|---|
+| `egpu_connected` | read-only | 1 = dock physically attached and powered |
+| `egpu_enable` | **read-write** | 1 = PCIe interface enabled |
+
+**`egpu_enable` does not persist across a reboot.** Captured from the boot
+of 2026-09-28 (boot at 19:57:45):
+
+```
+19:57:49  pcieport 0000:00:01.1: pciehp: Slot(0): Card present
+19:57:49  pcieport 0000:00:01.1: pciehp: Slot(0): No link
+19:58:55  pcieport 0000:00:01.1: pciehp: Slot(0): Card present
+19:58:56  pcieport 0000:00:01.1: pciehp: Slot(0): No link
+20:00:36  pcieport 0000:00:01.1: pciehp: Slot(0): Card present
+20:00:36  pcieport 0000:00:01.1: pciehp: Slot(0): Link Up
+20:00:36  pci 0000:03:00.0: [1002:73df] type 00 class 0x038000
+20:00:36  amdgpu 0000:03:00.0: initializing kernel modesetting (NAVY_FLOUNDER ...)
+```
+
+The dock was attached for the whole window. `Card present` + `No link` is
+the gated state; the link trained only after `egpu_enable` was written to 1.
+
+Other GPU-related attributes on this platform, for reference:
+`dgpu_disable = 0`, `throttle_thermal_policy = 1` (set by
+`platform_profile=performance`).
+
+A **bus rescan cannot substitute for the gate** — it re-enumerates links
+that are already up and cannot train one the firmware holds down.
 
 ### Enumeration order is NOT stable
 

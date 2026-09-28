@@ -105,6 +105,20 @@ for r in /etc/udev/rules.d/99-ally-egpu-fans.rules /etc/udev/rules.d/99-glados-e
 done
 P "no legacy udev hotplug rule (correct — the daemon re-asserts per tick)"
 
+# --- PCIe gate --------------------------------------------------------------
+printf '\nPCIe gate (asus-nb-wmi)\n'
+if W="$(wmi_path)" && [ -e "$W/egpu_enable" ]; then
+  P "egpu_enable present (connected=$(cat "$W/egpu_connected" 2>/dev/null) enable=$(cat "$W/egpu_enable" 2>/dev/null))"
+  systemctl is-enabled --quiet egpu-enable.service 2>/dev/null \
+    && P "egpu-enable.service enabled at boot (the gate does not persist)" \
+    || F "egpu-enable.service NOT enabled — the eGPU will be absent after a reboot"
+  if egpu_connected && ! egpu_gate_open; then
+    F "dock attached but the gate is CLOSED — run: sudo egpu-enable.sh"
+  fi
+else
+  F "asus-nb-wmi egpu_enable absent — the dock cannot be enabled in software"
+fi
+
 # --- eGPU (dock-dependent) --------------------------------------------------
 printf '\neGPU\n'
 if egpu_present; then
@@ -131,9 +145,13 @@ if egpu_present; then
       && P "role resolves: $(gpu_resolve.sh egpu check 2>&1 | head -1)" \
       || F "gpu_resolve.sh cannot resolve the egpu role"
   fi
+elif egpu_connected && ! egpu_gate_open; then
+  F "dock attached but the PCIe gate is closed — the card is NOT on the bus."
+  F "  Fix: sudo egpu-enable.sh   (then re-run this stage)"
 else
   S "eGPU absent (dock detached) — all eGPU checks skipped."
-  S "  This is a VALID state: attach the dock and re-run this stage."
+  S "  This is a VALID state: attach the dock, run sudo egpu-enable.sh,"
+  S "  and re-run this stage."
 fi
 
 # --- llama.cpp --------------------------------------------------------------

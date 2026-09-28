@@ -77,6 +77,28 @@ egpu_present() {
   [ -d "/sys/bus/pci/devices/${EGPU_PCI}" ]
 }
 
+# asus-nb-wmi, where the eGPU PCIe gate lives. Two paths depending on
+# kernel version; the bus path is usually a symlink to the devices path.
+wmi_path() {
+  local d
+  for d in /sys/bus/platform/devices/asus-nb-wmi /sys/devices/platform/asus-nb-wmi; do
+    [ -d "$d" ] && { printf '%s' "$d"; return 0; }
+  done
+  return 1
+}
+
+# 1 = dock physically attached. Says nothing about the PCIe link.
+egpu_connected() {
+  local w; w="$(wmi_path)" || return 1
+  [ "$(cat "$w/egpu_connected" 2>/dev/null)" = 1 ]
+}
+
+# 1 = PCIe interface enabled. Writable, and NOT persistent across reboot.
+egpu_gate_open() {
+  local w; w="$(wmi_path)" || return 1
+  [ "$(cat "$w/egpu_enable" 2>/dev/null)" = 1 ]
+}
+
 egpu_hwmon() {
   local h
   for h in /sys/bus/pci/devices/"${EGPU_PCI}"/hwmon/hwmon*/; do

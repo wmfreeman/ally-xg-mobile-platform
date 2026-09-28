@@ -1,0 +1,31 @@
+[Unit]
+# Opens the XG Mobile PCIe gate at boot.
+#
+# asus-nb-wmi's egpu_enable does NOT persist across a reboot, so without
+# this unit a host that was shut down with the dock attached comes back with
+# the dock powered, its fan HID enumerated, egpu_connected=1 — and the card
+# absent from the PCI bus entirely, because the link was never trained.
+#
+# Ordered BEFORE the thermal daemon so the eGPU is on the bus by the time
+# the daemon takes its first 10 s tick. The daemon does not require this
+# (it re-detects every tick and is correct with the card absent), but
+# starting with the card already present avoids a pointless first tick
+# reporting a detached dock.
+Description=Enable XG Mobile eGPU PCIe interface (asus-nb-wmi egpu_enable)
+Documentation=file:/usr/local/bin/egpu-enable.sh
+After=systemd-modules-load.service basic.target
+Before=glados-thermal.service
+ConditionPathExists=/sys/bus/platform/devices/asus-nb-wmi/egpu_enable
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/local/bin/egpu-enable.sh --timeout 60
+# Exit 4 is "no dock attached" — a normal, expected state, not a failure.
+# Without this the unit goes degraded on every boot with the dock off.
+SuccessExitStatus=0 4
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

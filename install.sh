@@ -62,7 +62,9 @@ cat <<BANNER
   ----------------------------------
   target user : $U
   home        : $(target_home)
-  eGPU        : ${EGPU_PCI} (${EGPU_GFX})   $(egpu_present && echo PRESENT || echo 'ABSENT — dock detached')
+  eGPU        : ${EGPU_PCI} (${EGPU_GFX})   $(egpu_present && echo PRESENT \
+                  || { egpu_connected && ! egpu_gate_open && echo 'dock attached, PCIe GATE CLOSED' \
+                  || echo 'ABSENT — dock detached'; })
   unit        : ${UNIT_NAME}.service
   ROCm        : ${ROCM_VERSION}
 
@@ -93,11 +95,14 @@ cat <<DONE
     * If stage 30 said REBOOT REQUIRED, reboot now — the eGPU power cap
       stays locked at 165W until the ppfeaturemask takes.
     * Log out and back in if groups changed (render, video, socket group).
-    * Attach the XG Mobile dock. The daemon picks it up within one 10 s
-      tick; nothing else is needed at boot.
+    * Attach the XG Mobile dock. egpu-enable.service opens the PCIe gate
+      at boot (it does NOT persist on its own); if you attach the dock
+      while running, open it by hand:  sudo egpu-enable.sh
+      The thermal daemon then picks the card up within one 10 s tick.
 
   Check it:
     egpu-status.sh                    one screen of truth
+    sudo egpu-enable.sh --status      is the dock attached, is the gate open
     sudo $0 --verify                  full pass/fail
     journalctl -u ${UNIT_NAME} -f     watch the fan ladders
 

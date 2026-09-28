@@ -55,10 +55,25 @@ else
   warn "iGPU not at ${IGPU_PCI} — PCI layout differs from the validated platform"
 fi
 
+# --- the PCIe gate ----------------------------------------------------------
+# The single most confusing state this platform has: dock plugged in,
+# powered, fan HID enumerated, egpu_connected=1 — and nothing on the PCI
+# bus, because egpu_enable is 0. It does not persist across a reboot.
+if W="$(wmi_path)" && [ -e "$W/egpu_enable" ]; then
+  ok "asus-nb-wmi egpu_enable present (PCIe gate controllable)"
+  say "  egpu_connected=$(cat "$W/egpu_connected" 2>/dev/null) egpu_enable=$(cat "$W/egpu_enable" 2>/dev/null)"
+else
+  warn "asus-nb-wmi egpu_enable ABSENT — the XG Mobile PCIe interface cannot"
+  warn "  be enabled in software on this kernel. The dock will never enumerate."
+fi
+
 # --- eGPU / dock ------------------------------------------------------------
 if egpu_present; then
   drv=$(basename "$(readlink -f "/sys/bus/pci/devices/${EGPU_PCI}/driver" 2>/dev/null)" 2>/dev/null)
   ok "eGPU present at ${EGPU_PCI} (driver: ${drv:-none})"
+elif egpu_connected && ! egpu_gate_open; then
+  warn "dock IS attached but the PCIe gate is CLOSED — card not on the bus."
+  warn "  Stage 45 installs egpu-enable.service and opens it."
 else
   say "eGPU ABSENT at ${EGPU_PCI} — dock detached."
   say "  Not a problem: install proceeds and the daemon attaches on hotplug."

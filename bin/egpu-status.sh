@@ -16,6 +16,22 @@ UNIT="${UNIT_NAME:-glados-thermal}"
 b() { printf '\n\033[1m%s\033[0m\n' "$*"; }
 r() { cat "$1" 2>/dev/null || echo '?'; }
 
+b "Dock gate (asus-nb-wmi)"
+WMI=''
+for d in /sys/bus/platform/devices/asus-nb-wmi /sys/devices/platform/asus-nb-wmi; do
+  [ -d "$d" ] && { WMI="$d"; break; }
+done
+if [ -n "$WMI" ] && [ -e "$WMI/egpu_enable" ]; then
+  conn="$(r "$WMI/egpu_connected")"; gate="$(r "$WMI/egpu_enable")"
+  printf '  egpu_connected = %s   (1 = dock physically attached)\n' "$conn"
+  printf '  egpu_enable    = %s   (1 = PCIe interface enabled; NOT persistent)\n' "$gate"
+  if [ "$conn" = 1 ] && [ "$gate" != 1 ]; then
+    printf '  \033[33m** dock attached but the GATE IS CLOSED — run: sudo egpu-enable.sh **\033[0m\n'
+  fi
+else
+  printf '  asus-nb-wmi egpu_enable not available on this kernel\n'
+fi
+
 b "PCI"
 if [ -d "/sys/bus/pci/devices/${EGPU_PCI}" ]; then
   d="/sys/bus/pci/devices/${EGPU_PCI}"
@@ -25,9 +41,13 @@ if [ -d "/sys/bus/pci/devices/${EGPU_PCI}" ]; then
     "$(r "$d/power/control")" "$(r "$d/power/runtime_status")"
   lspci -nn -s "${EGPU_PCI#0000:}" 2>/dev/null | sed 's/^/    /'
 else
-  printf '  eGPU %s  ABSENT — dock detached\n' "$EGPU_PCI"
-  printf '    (PCIe enumeration happens at physical connect; a bus rescan\n'
-  printf '     cannot bring up a link that is down.)\n'
+  printf '  eGPU %s  ABSENT from the bus\n' "$EGPU_PCI"
+  if [ "${conn:-}" = 1 ] && [ "${gate:-}" != 1 ]; then
+    printf '    Dock IS attached — the PCIe gate is closed. sudo egpu-enable.sh\n'
+  else
+    printf '    A bus rescan will not help: it re-enumerates links that are\n'
+    printf '    already up, and cannot train one the firmware holds down.\n'
+  fi
 fi
 printf '  iGPU %s  %s\n' "$IGPU_PCI" \
   "$([ -d "/sys/bus/pci/devices/${IGPU_PCI}" ] && echo PRESENT || echo ABSENT)"

@@ -30,7 +30,18 @@ last=''
 while :; do
   why=''
   if [ ! -d "/sys/bus/pci/devices/${EGPU_PCI}" ]; then
-    why="not on the PCI bus (dock detached)"
+    # Distinguish the two ways to be off the bus. "Dock attached but gated"
+    # is actionable and common after a reboot; "no dock" is not.
+    w=''
+    for d in /sys/bus/platform/devices/asus-nb-wmi /sys/devices/platform/asus-nb-wmi; do
+      [ -d "$d" ] && { w="$d"; break; }
+    done
+    if [ -n "$w" ] && [ "$(cat "$w/egpu_connected" 2>/dev/null)" = 1 ] \
+                   && [ "$(cat "$w/egpu_enable" 2>/dev/null)" != 1 ]; then
+      why="dock attached but the PCIe GATE IS CLOSED — run: sudo egpu-enable.sh"
+    else
+      why="not on the PCI bus (dock detached)"
+    fi
   elif [ ! -e "/sys/bus/pci/devices/${EGPU_PCI}/driver" ]; then
     why="present but no driver bound"
   elif [ ! -e "/dev/dri/by-path/pci-${EGPU_PCI}-render" ]; then

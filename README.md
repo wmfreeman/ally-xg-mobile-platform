@@ -123,28 +123,61 @@ Reinstalling never overwrites an existing config.
 
 ## How eGPU attach actually works
 
-There is **no software path from "dock detached" to "card present"**. PCIe
-enumeration is done by firmware and the kernel at *physical connect*.
-`echo 1 > /sys/bus/pci/rescan` re-runs enumeration on links that are already
-up; with the dock's link down it is a no-op that returns success and changes
-nothing. Verified: buses 01–05 — the dock's reserved window under root port
-`00:01.1` — are simply empty when the dock is off.
+Three separate conditions. Confusing any two of them wastes an afternoon.
 
-What *does* need handling is what happens after enumeration. The card
-returns with runtime PM `auto`, drops to **D3cold** at idle, and every hwmon
-attribute then returns `EBUSY` — indistinguishable from a dead sensor, and
-it stops the fan being pre-spun before load arrives.
+### 1. Physically attached — `egpu_connected`
+
+`asus-nb-wmi` exposes a read-only `egpu_connected`. When it reads `1` the
+dock is plugged in and powered, and its fan HID enumerates over USB. **This
+says nothing about the PCIe link.**
+
+### 2. Gate open — `egpu_enable`
+
+`/sys/bus/platform/devices/asus-nb-wmi/egpu_enable` is **writable**, and must
+be `1` for the PCIe interface to come up at all. It does **not persist across
+a reboot**. Observed on this host:
+
+```
+19:57:49  pciehp: Slot(0): Card present   ← dock attached at boot
+19:57:49  pciehp: Slot(0): No link        ← but the gate was closed
+20:00:36  pciehp: Slot(0): Link Up        ← after egpu_enable=1
+20:00:36  pci 0000:03:00.0: [1002:73df]   ← card enumerates, amdgpu binds
+```
+
+So a box rebooted with the dock attached comes back with the dock powered,
+its fan spinning, `egpu_connected=1` — and **nothing on the PCI bus**. That
+is the most confusing state this platform has.
+
+```bash
+sudo egpu-enable.sh              # open the gate, wait for the link
+sudo egpu-enable.sh --status     # report only, change nothing
+```
+
+`egpu-enable.service` is installed and enabled by stage 45 so this happens
+at boot, ordered before the thermal daemon. It exits cleanly when no dock is
+attached.
+
+> **A bus rescan does not help.** `echo 1 > /sys/bus/pci/rescan` re-runs
+> enumeration over links that are *already up*; it cannot train a link the
+> firmware is holding down. The gate is the lever, not the rescan. With the
+> gate closed, buses 01–05 — the dock's reserved window under root port
+> `00:01.1` — are simply empty.
+
+### 3. Awake — runtime PM
+
+Once enumerated the card returns with runtime PM `auto`, drops to **D3cold**
+at idle, and every hwmon attribute then returns `EBUSY` — indistinguishable
+from a dead sensor, and it stops the fan being pre-spun before load arrives.
 
 The daemon fixes this **on a loop, not once**: every 10 s tick it re-asserts
-`power/control=on` and re-detects the dock HID. Cold boot with the dock on,
-hotplug, and resume are therefore the same code path, and all heal within
-one tick.
+`power/control=on` and re-detects the dock HID. This one needs nothing
+installed and heals itself within a tick.
 
-**There is deliberately no udev rule.** Older installers shipped one that
-restarted the service on hotplug; once the re-assert loop existed it bought
-nothing, cost a curve gap while the unit bounced, and hardcoded a unit name
-that was wrong wherever the daemon ran under another. Stage 45 *removes* any
-such rule left behind.
+**There is deliberately no udev rule for the fan.** Older installers shipped
+one that restarted the thermal service on hotplug; once the re-assert loop
+existed it bought nothing, cost a curve gap while the unit bounced, and
+hardcoded a unit name that was wrong wherever the daemon ran under another.
+Stage 45 *removes* any such rule left behind.
 
 ---
 
@@ -201,7 +234,8 @@ index 0, which is how it survives casual testing.
 
 | Command | What it tells you |
 |---|---|
-| `egpu-status.sh` | One screen: PCI, driver, render nodes, ROCm/Vulkan, both fan ladders, thermals. No root. |
+| `egpu-enable.sh` | Opens the PCIe gate and waits for link-up. `--status`, `--disable`, `--timeout N`. |
+| `egpu-status.sh` | One screen: gate, PCI, driver, render nodes, ROCm/Vulkan, both fan ladders, thermals. No root. |
 | `egpu-wait.sh [secs]` | Blocks until the card is genuinely ready (4 independent checks). Exit 1 on timeout. Writes nothing. |
 | `gpu_resolve.sh <role> <verb>` | `index`, `vkindex`, `gfx`, `pci`, `render`, `check`, `vkcheck`. |
 | `gpu-watch.sh [out.csv]` | Per-second telemetry during a live run. |
@@ -233,6 +267,11 @@ detached — the platform is expected to be correct with the dock off.
 
 ## Known traps
 
+- **The dock can be attached and still invisible.** `egpu_enable` does not
+  survive a reboot. If `lspci` shows no `03:00.0` but the dock is plugged in
+  and its fan is running, the gate is closed — `sudo egpu-enable.sh`. A PCI
+  rescan will not fix it. `egpu-enable.service` handles this at boot; it is
+  the thing to check first if the card is missing after a rebuild.
 - **Reboot after stage 30.** Until `ppfeaturemask` takes, `power1_cap` reads
   `min == max == 165 W` and `pp_od_clk_voltage` is absent. The limits look
   hard-locked by the vBIOS when they are locked by a *default*.
@@ -267,7 +306,7 @@ lib/gpu_roles.py        role resolver (Python)
 stages/                 00-preflight … 60-verify
 thermal/bin/            system-thermal-daemon.py
 thermal/config/         system-thermal-daemon.conf (shipped defaults)
-thermal/systemd/        glados-thermal.service
+thermal/systemd/        glados-thermal.service, egpu-enable.service
 bin/                    platform tools → /usr/local/bin
 docs/FINDINGS.md        the measurements and dead ends behind every choice
 docs/THERMAL-GUARD.md   the inference-time guard
