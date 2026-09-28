@@ -105,6 +105,25 @@ for r in /etc/udev/rules.d/99-ally-egpu-fans.rules /etc/udev/rules.d/99-glados-e
 done
 P "no legacy udev hotplug rule (correct — the daemon re-asserts per tick)"
 
+# --- drivers / firmware -----------------------------------------------------
+printf '\nDrivers / firmware\n'
+for m in amdgpu asus_wmi asus_nb_wmi hid_asus; do
+  lsmod | awk '{print $1}' | grep -qx "$m" && P "module loaded: $m" \
+                                           || F "module NOT loaded: $m"
+done
+for fwp in navy_flounder:eGPU-Navi22 gc_11_0_1:iGPU-Phoenix; do
+  pat="${fwp%%:*}"; lbl="${fwp##*:}"
+  n=$(find /lib/firmware/amdgpu -maxdepth 1 -name "${pat}*" 2>/dev/null | wc -l)
+  [ "$n" -gt 0 ] && P "$lbl firmware present (${n} blobs)" \
+                 || F "$lbl firmware MISSING (${pat}*) — that GPU cannot initialise"
+done
+found=0
+for h in /sys/class/hwmon/hwmon*/; do
+  [ "$(cat "$h/name" 2>/dev/null)" = "asus" ] && found=1
+done
+[ "$found" = 1 ] && P "asus hwmon exposed (fan RPM readback)" \
+                 || F "asus hwmon not exposed"
+
 # --- PCIe gate --------------------------------------------------------------
 printf '\nPCIe gate (asus-nb-wmi)\n'
 if W="$(wmi_path)" && [ -e "$W/egpu_enable" ]; then

@@ -23,6 +23,7 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 STAGES=(
   "00-preflight.sh:read-only platform checks"
   "10-packages.sh:build toolchain, Vulkan runtime, utilities"
+  "15-drivers.sh:verify in-tree drivers + amdgpu firmware"
   "20-rocm.sh:ROCm ${ROCM_VERSION} + render/video groups"
   "30-kernel-params.sh:amdgpu OverDrive via GRUB (needs reboot)"
   "40-thermal.sh:SystemThermalDaemon — fan authority"

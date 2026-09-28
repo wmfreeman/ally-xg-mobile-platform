@@ -48,7 +48,8 @@ daemon that owns every thermal knob on the box and re-asserts on a loop.
 | Stage | What it does |
 |---|---|
 | `00-preflight` | Read-only. Proves this is the right platform; refuses to install something inert. |
-| `10-packages` | Build toolchain, Vulkan runtime + `vulkaninfo`, utilities. |
+| `10-packages` | Build toolchain, Vulkan runtime + `vulkaninfo`, `linux-firmware`, utilities. |
+| `15-drivers` | Verifies the in-tree modules and amdgpu firmware blobs. Installs nothing but firmware. |
 | `20-rocm` | ROCm 7.2.4 from AMD's apt repo; adds you to `render` + `video`. |
 | `30-kernel-params` | `amdgpu.ppfeaturemask=0xfff7ffff` via GRUB. **Needs a reboot.** |
 | `40-thermal` | SystemThermalDaemon → `glados-thermal.service`, enabled at boot. |
@@ -69,6 +70,45 @@ Every stage is independently re-runnable. Re-running a completed stage
 reports `[skip]` rather than repeating work.
 
 ---
+
+## Drivers and firmware
+
+**There is no driver to install.** Every driver this platform needs is an
+in-tree kernel module shipping with `linux-image`:
+
+| Module | Provides |
+|---|---|
+| `amdgpu` | both GPUs |
+| **`asus_nb_wmi`** | the `asus` hwmon (fan RPM), **`asus_custom_fan_curve`** (the only way to set the Ally curve), **and `egpu_enable`** (the PCIe gate) |
+| `asus_wmi` | the generic half of the above |
+| `asus_armoury` | newer ROG attributes |
+| `hid_asus` | N-KEY device |
+
+No DKMS, no out-of-tree build, no vendor package. `asus_nb_wmi` carries three
+things this platform cannot work without, which is why stage 15 checks it
+explicitly rather than assuming it loaded.
+
+**Firmware is a separate package and is genuinely fatal if missing.** amdgpu
+loads signed blobs from `/lib/firmware/amdgpu/` at probe:
+
+| GPU | Blob family |
+|---|---|
+| eGPU — Navi 22 | `navy_flounder_*` |
+| iGPU — Phoenix | `gc_11_0_1_*` |
+
+Without them the card enumerates on the bus and then **fails to initialise** —
+a different and more confusing failure than the card not being there. Stage 10
+installs `linux-firmware`; stage 15 verifies both families are actually present
+and checks the boot log for load failures.
+
+Stage 15 also catches the silent killer: a **blacklisted** `asus_wmi` /
+`asus_nb_wmi`. That failure is total and says nothing in the journal — no fan
+curve, no gate, no explanation.
+
+> **Kernel version.** Validated on **7.0.0-34-generic**. A stock Ubuntu 24.04
+> install ships 6.8. Stage 15 tests for the *attributes* rather than trusting a
+> version number; if `egpu_enable` or `asus_custom_fan_curve` is absent, it
+> tells you to install `linux-generic-hwe-24.04` and re-run.
 
 ## The thermal daemon
 

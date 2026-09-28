@@ -23,6 +23,7 @@ PKGS=(
   xxd                           # dock HID report_descriptor check in preflight
   pciutils usbutils lm-sensors
   jq curl ca-certificates gnupg
+  linux-firmware               # amdgpu blobs; stage 15 verifies the families
 )
 
 missing=()
